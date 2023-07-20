@@ -2,6 +2,8 @@
 
 - Install GTK4 via MSYS2
 - Compile FFmpeg via MSYS2 / MinGW
+`pacman -S mingw-w64-x86_64-x264` in MSYS2
+`./configure --enable-shared --enable-libx264 --enable-gpl`
 
 Windows:
 ```
