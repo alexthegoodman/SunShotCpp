@@ -91,11 +91,12 @@ static int transform_video (GtkWidget *widget, gpointer data)
         return -1;
     }
 
-    g_print("Finding Video Stream...\n");
+    g_print("Finding Video Stream... %d \n", pFormatCtx->nb_streams);
 
     int videoStream = -1;
     AVCodecParameters *codecpar = NULL;
     for (int i = 0; i < pFormatCtx->nb_streams; i++) {
+        g_print("Stream %d type: %d\n", i, pFormatCtx->streams[i]->codecpar->codec_id);
         if (pFormatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
             g_print("Found video stream\n");
             videoStream = i;
@@ -179,19 +180,25 @@ static int transform_video (GtkWidget *widget, gpointer data)
         NULL
     );
 
-    int frameFinished;
-    AVPacket packet;
+    // int frameFinished;
+    // AVPacket packet;
+    AVPacket* packet = av_packet_alloc();
+    if (!packet) {
+        // handle error, e.g. out of memory
+        g_print("Could not allocate packet\n");
+        return -1;
+    }
+
     int y = 0;
     double zoom = 1.0;
 
     g_print("Starting read frames...\n");
+    g_print("Stream Index: %d : %d\n", packet->stream_index, videoStream);
 
-    if(packet.stream_index == videoStream) {
-        // Old deprecated code:
-        // avcodec_decode_video2(pCodecCtx, pFrame, &frameFinished, &packet);
+    if(packet->stream_index == videoStream) {
+        g_print("Index match...\n");
 
-        // New code:
-        int response = avcodec_send_packet(pCodecCtx, &packet);
+        int response = avcodec_send_packet(pCodecCtx, packet);
 
         if(response < 0) {
             // logging error
@@ -199,8 +206,12 @@ static int transform_video (GtkWidget *widget, gpointer data)
             return -1;
         }
 
+        g_print("Start frame loop...\n");
+
         while(response >= 0) {
             response = avcodec_receive_frame(pCodecCtx, pFrame);
+
+            g_print("Frame Received: %d %d %d\n", response, AVERROR(EAGAIN), AVERROR_EOF);
 
             if(response == AVERROR(EAGAIN) || response == AVERROR_EOF) {
                 // those two cases are OK, it means that there is no frame available for now
@@ -215,6 +226,8 @@ static int transform_video (GtkWidget *widget, gpointer data)
                 // Do whatever you need to do with the frame.
                 // You can also get frameFinished information from the response code
                 bool frameFinished = (response >= 0);
+
+                g_print("Frame Finished: %d\n", frameFinished);
 
                 if (frameFinished) {
                     sws_scale(
@@ -244,15 +257,6 @@ static int transform_video (GtkWidget *widget, gpointer data)
             }
         }
     }
-
-    // while (av_read_frame(pFormatCtx, &packet) >= 0) {
-    //     if (packet.stream_index == videoStream) {
-    //         avcodec_decode_video2(pCodecCtx, pFrame, &frameFinished, &packet);
-            
-    //     }
-
-    //     av_packet_unref(&packet);
-    // }
 
     AVFrame* pFrameFinal = av_frame_alloc();
     if (!pFrameFinal) {
@@ -320,6 +324,7 @@ static int transform_video (GtkWidget *widget, gpointer data)
     }
 
     // Step 4: Open output file
+    g_print("Open output file...\n");
     if (!(outFormatCtx->oformat->flags & AVFMT_NOFILE)) {
         int ret = avio_open(&outFormatCtx->pb, outputFilename, AVIO_FLAG_WRITE);
         if (ret < 0) {
@@ -336,6 +341,7 @@ static int transform_video (GtkWidget *widget, gpointer data)
 
     // Step 6: Process each frame (you might loop this part over your frames)
     // Assuming that pFrameFinal is the frame you want to write
+    g_print("Write final frame (?)\n");
     AVPacket pkt = {0};
     av_init_packet(&pkt);
 
@@ -361,14 +367,18 @@ static int transform_video (GtkWidget *widget, gpointer data)
     }
 
     // Step 7: Write file trailer and close the file
+    g_print("Write trailer...\n");
     av_write_trailer(outFormatCtx);
     if (!(outFormatCtx->oformat->flags & AVFMT_NOFILE)) {
         avio_closep(&outFormatCtx->pb);
     }
 
+    g_print("Clean Up\n");
+
     // Cleanup encode
     avcodec_free_context(&codecCtx);
     avformat_free_context(outFormatCtx);
+    av_packet_free(&packet);
 
     // cleanup decode
     av_free(buffer);
