@@ -1,4 +1,5 @@
 #include <gtk/gtk.h>
+// #include <objbase.h>  // For CoInitializeEx(), COINIT_MULTITHREADED
 #include "creator.cpp"
 
 void activate (GtkApplication *app,
@@ -12,10 +13,10 @@ void activate (GtkApplication *app,
   gtk_window_set_title (GTK_WINDOW (window), "Window");
   
   // Here we construct the container that is going pack our button
-  button = gtk_button_new_with_label ("Print File Info");
+  button = gtk_button_new_with_label ("Transform Video");
 
   // Connect the "clicked" signal of the button to our callback
-  g_signal_connect (button, "clicked", G_CALLBACK (print_file_info), NULL);
+  g_signal_connect (button, "clicked", G_CALLBACK (transform_video), NULL);
   
   // Add the button to the window
   gtk_window_set_child (GTK_WINDOW (window), button);
@@ -27,6 +28,14 @@ void activate (GtkApplication *app,
 int main (int   argc,
           char *argv[])
 {
+  // multithreading for ffmpeg
+  // HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+  // if (FAILED(hr)) {
+  //     fprintf(stderr, "CoInitializeEx failed: %08X\n", hr);
+  //     return 1;
+  // }
+
+  // init gtk
   GtkApplication *app;
   int status;
 
@@ -34,6 +43,9 @@ int main (int   argc,
   g_signal_connect (app, "activate", G_CALLBACK (activate), NULL);
   status = g_application_run (G_APPLICATION (app), argc, argv);
   g_object_unref (app);
+
+  // clean up
+  // CoUninitialize();
 
   return status;
 }
