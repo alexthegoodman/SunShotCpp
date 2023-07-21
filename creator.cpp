@@ -195,6 +195,23 @@ static int transform_video (GtkWidget *widget, gpointer data)
         return -1;
     }
 
+    // AVStream* outStream = avformat_new_stream(outFormatCtx, NULL);
+    // if (!outStream) {
+    //     fprintf(stderr, "Failed allocating output stream\n");
+    //     return -1;
+    // }
+
+    // needed?
+    // if (!(outFormatCtx->oformat->flags & AVFMT_NOFILE)) {
+    //     int ret = avio_open(&outFormatCtx->pb, outputFilename, AVIO_FLAG_WRITE);
+    //     if (ret < 0) {
+    //         g_print("Could not open output file '%s'", outputFilename);
+    //         return -1;
+    //     }
+    // }
+
+    
+
     // Step 2: Setup the codec
     AVStream *outStream = avformat_new_stream(outFormatCtx, NULL);
     if (!outStream) {
