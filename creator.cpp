@@ -91,7 +91,7 @@ static int transform_video (GtkWidget *widget, gpointer data)
         return -1;
     }
 
-    g_print("Finding Video Stream... %d \n", pFormatCtx->nb_streams);
+    g_print("Finding Video Stream... Num Streams: %d Num Frames: %d \n", pFormatCtx->nb_streams, pFormatCtx->streams[0]->nb_frames);
 
     int videoStream = -1;
     AVCodecParameters *codecpar = NULL;
@@ -180,93 +180,13 @@ static int transform_video (GtkWidget *widget, gpointer data)
         NULL
     );
 
-    // int frameFinished;
-    // AVPacket packet;
-    AVPacket* packet = av_packet_alloc();
-    if (!packet) {
-        // handle error, e.g. out of memory
-        g_print("Could not allocate packet\n");
+    FILE *outfile = fopen(outputFilename, "wb");
+    if (!outfile) {
+        fprintf(stderr, "Could not open output file\n");
         return -1;
     }
 
-    int y = 0;
-    double zoom = 1.0;
-
-    g_print("Starting read frames...\n");
-    g_print("Stream Index: %d : %d\n", packet->stream_index, videoStream);
-
-    if(packet->stream_index == videoStream) {
-        g_print("Index match...\n");
-
-        int response = avcodec_send_packet(pCodecCtx, packet);
-
-        if(response < 0) {
-            // logging error
-            g_print("Error decoding frame\n");
-            return -1;
-        }
-
-        g_print("Start frame loop...\n");
-
-        while(response >= 0) {
-            response = avcodec_receive_frame(pCodecCtx, pFrame);
-
-            g_print("Frame Received: %d %d %d\n", response, AVERROR(EAGAIN), AVERROR_EOF);
-
-            if(response == AVERROR(EAGAIN) || response == AVERROR_EOF) {
-                // those two cases are OK, it means that there is no frame available for now
-                break;
-            } else if(response < 0) {
-                // logging error
-                break;
-            }
-
-            if(response >= 0) {
-                // We have a decoded frame here
-                // Do whatever you need to do with the frame.
-                // You can also get frameFinished information from the response code
-                bool frameFinished = (response >= 0);
-
-                g_print("Frame Finished: %d\n", frameFinished);
-
-                if (frameFinished) {
-                    sws_scale(
-                        sws_ctx,
-                        (uint8_t const* const*)pFrame->data,
-                        pFrame->linesize,
-                        0,
-                        pCodecCtx->height,
-                        pFrameRGB->data,
-                        pFrameRGB->linesize
-                    );
-                    
-                    for (int y = 0; y < pCodecCtx->height; y++) {
-                        for (int x = 0; x < pCodecCtx->width; x++) {
-                            int gradient = (y + frameFinished * GRADIENT_SPEED) % 256;
-                            pFrameRGB->data[0][y * pFrameRGB->linesize[0] + x] = gradient;
-                            pFrameRGB->data[1][y * pFrameRGB->linesize[1] + x] = gradient;
-                            pFrameRGB->data[2][y * pFrameRGB->linesize[2] + x] = gradient;
-                        }
-                    }
-
-                    // Zoom animation
-                    if (frameFinished % 100 == 0) {
-                        zoom += springAnimation(ZOOM_FACTOR, zoom, 0.1, 0.1, 0.1);
-                    }
-                }
-            }
-        }
-    }
-
-    AVFrame* pFrameFinal = av_frame_alloc();
-    if (!pFrameFinal) {
-        g_print("Could not allocate video frame\n");
-        return -1;
-    }
-
-    g_print("Starting Encode...\n");
-
-    // *** encode video ***
+    // *** prep enncoding ***
     // Step 1: Create output context
     AVFormatContext *outFormatCtx = NULL;
     avformat_alloc_output_context2(&outFormatCtx, NULL, NULL, outputFilename);
@@ -274,6 +194,23 @@ static int transform_video (GtkWidget *widget, gpointer data)
         g_print("Could not create output context\n");
         return -1;
     }
+
+    // AVStream* outStream = avformat_new_stream(outFormatCtx, NULL);
+    // if (!outStream) {
+    //     fprintf(stderr, "Failed allocating output stream\n");
+    //     return -1;
+    // }
+
+    // needed?
+    // if (!(outFormatCtx->oformat->flags & AVFMT_NOFILE)) {
+    //     int ret = avio_open(&outFormatCtx->pb, outputFilename, AVIO_FLAG_WRITE);
+    //     if (ret < 0) {
+    //         g_print("Could not open output file '%s'", outputFilename);
+    //         return -1;
+    //     }
+    // }
+
+    
 
     // Step 2: Setup the codec
     AVStream *outStream = avformat_new_stream(outFormatCtx, NULL);
@@ -288,8 +225,8 @@ static int transform_video (GtkWidget *widget, gpointer data)
         return -1;
     }
 
-    AVCodecContext *codecCtx = avcodec_alloc_context3(outCodec);
-    if (!codecCtx) {
+    AVCodecContext *encoderCodecCtx = avcodec_alloc_context3(outCodec);
+    if (!encoderCodecCtx) {
         g_print("Could not create video codec context\n");
         return -1;
     }
@@ -299,26 +236,26 @@ static int transform_video (GtkWidget *widget, gpointer data)
     // g_print("Width: %d\n", pFrameFinal->width);
     // g_print("Height: %d\n", pFrameFinal->height);
 
-    codecCtx->bit_rate = pCodecCtx->bit_rate; 
-    // codecCtx->width = pFrameFinal->width;
-    // codecCtx->height = pFrameFinal->height;
-    codecCtx->width = pCodecCtx->width;
-    codecCtx->height = pCodecCtx->height;
-    codecCtx->time_base = (AVRational){1, 25}; // Assume 25FPS for the example
-    codecCtx->framerate = (AVRational){25, 1}; // Assume 25FPS for the example
-    codecCtx->gop_size = 10;
-    codecCtx->max_b_frames = 1;
-    codecCtx->pix_fmt = AV_PIX_FMT_YUV420P;
+    encoderCodecCtx->bit_rate = pCodecCtx->bit_rate; 
+    // encoderCodecCtx->width = pFrameFinal->width;
+    // encoderCodecCtx->height = pFrameFinal->height;
+    encoderCodecCtx->width = pCodecCtx->width;
+    encoderCodecCtx->height = pCodecCtx->height;
+    encoderCodecCtx->time_base = (AVRational){1, 25}; // Assume 25FPS for the example
+    encoderCodecCtx->framerate = (AVRational){25, 1}; // Assume 25FPS for the example
+    encoderCodecCtx->gop_size = 10;
+    encoderCodecCtx->max_b_frames = 1;
+    encoderCodecCtx->pix_fmt = AV_PIX_FMT_YUV420P;
 
-    outStream->time_base = codecCtx->time_base;
+    outStream->time_base = encoderCodecCtx->time_base;
 
     // Step 3: Open the codec and add the stream info to the format context
-    if (avcodec_open2(codecCtx, NULL, NULL) < 0) {
+    if (avcodec_open2(encoderCodecCtx, NULL, NULL) < 0) {
         g_print("Failed to open encoder for stream\n");
         return -1;
     }
 
-    if (avcodec_parameters_from_context(outStream->codecpar, codecCtx) < 0) {
+    if (avcodec_parameters_from_context(outStream->codecpar, encoderCodecCtx) < 0) {
         g_print("Failed to copy encoder parameters to output stream\n");
         return -1;
     }
@@ -339,21 +276,240 @@ static int transform_video (GtkWidget *widget, gpointer data)
         return -1;
     }
 
+    // int frameFinished;
+    // AVPacket packet;
+    AVPacket* packet = av_packet_alloc();
+    if (!packet) {
+        // handle error, e.g. out of memory
+        g_print("Could not allocate packet\n");
+        return -1;
+    }
+
+    AVPacket* packet2 = av_packet_alloc();
+    if (!packet2) {
+        // handle error, e.g. out of memory
+        g_print("Could not allocate packet2\n");
+        return -1;
+    }
+
+    int y = 0;
+    double zoom = 1.0;
+
+    g_print("Starting read frames...\n");
+    g_print("Stream Index: %d : %d\n", packet->stream_index, videoStream);
+
+    if(packet->stream_index == videoStream) {
+        g_print("Index match...\n");
+
+        // read frame
+        int response = av_read_frame(pFormatCtx, packet);
+
+        g_print("Read frame response: %d\n", response);
+
+        if(response < 0) {
+            // logging error
+            g_print("Error reading frame\n");
+            return -1;
+        }
+
+        response = avcodec_send_packet(pCodecCtx, packet);
+
+        if(response < 0) {
+            // logging error
+            g_print("Error decoding frame\n");
+            return -1;
+        }
+
+        g_print("Start frame loop...\n");
+
+        // loop 1
+        // while(response >= 0) {
+        //     response = avcodec_receive_frame(pCodecCtx, pFrame);
+
+        //     g_print("Frame Received: %d %d %d\n", response, AVERROR(EAGAIN), AVERROR_EOF);
+
+        //     // if(response == AVERROR(EAGAIN) || response == AVERROR_EOF) {
+        //     //     // those two cases are OK, it means that there is no frame available for now
+        //     //     break;
+        //     // } else if(response < 0) {
+        //     //     // logging error
+        //     //     break;
+        //     // }
+
+        //     if(response >= 0) {
+        //         // We have a decoded frame here
+        //         // Do whatever you need to do with the frame.
+        //         // You can also get frameFinished information from the response code
+        //         bool frameFinished = (response >= 0);
+
+        //         g_print("Frame Finished: %d\n", frameFinished);
+
+        //         if (frameFinished) {
+        //             // alter pixel data
+        //             // sws_scale(
+        //             //     sws_ctx,
+        //             //     (uint8_t const* const*)pFrame->data,
+        //             //     pFrame->linesize,
+        //             //     0,
+        //             //     pCodecCtx->height,
+        //             //     pFrameRGB->data,
+        //             //     pFrameRGB->linesize
+        //             // );
+                    
+        //             // for (int y = 0; y < pCodecCtx->height; y++) {
+        //             //     for (int x = 0; x < pCodecCtx->width; x++) {
+        //             //         int gradient = (y + frameFinished * GRADIENT_SPEED) % 256;
+        //             //         pFrameRGB->data[0][y * pFrameRGB->linesize[0] + x] = gradient;
+        //             //         pFrameRGB->data[1][y * pFrameRGB->linesize[1] + x] = gradient;
+        //             //         pFrameRGB->data[2][y * pFrameRGB->linesize[2] + x] = gradient;
+        //             //     }
+        //             // }
+
+        //             // // Zoom animation
+        //             // if (frameFinished % 100 == 0) {
+        //             //     zoom += springAnimation(ZOOM_FACTOR, zoom, 0.1, 0.1, 0.1);
+        //             // }
+        //         }
+        //     }
+        // }
+
+        // loop 2
+        // while (av_read_frame(pFormatCtx, packet) >= 0) {
+        //     // If this is a packet from the video stream
+        //     g_print("Read Frame\n");
+        //     if (packet->stream_index == videoStream) {
+        //         // Send the packet to the decoder
+        //         if (avcodec_send_packet(pCodecCtx, packet) < 0) {
+        //             fprintf(stderr, "Error sending packet for decoding\n");
+        //             return -1;
+        //         }
+        //         // While we can get frames from the decoder
+        //         while (avcodec_receive_frame(pCodecCtx, pFrame) == 0) {
+        //             // We have a frame, do something with it
+        //             // For example, write it to the output file
+        //             g_print("Frame Received\n");
+
+        //             // encode per frame (?)
+        //             if (avcodec_send_frame(encoderCodecCtx, pFrame) < 0) {
+        //                 fprintf(stderr, "Error sending frame for encoding\n");
+        //                 return -1;
+        //             }
+        //             // While we can get packets from the encoder
+        //             while (avcodec_receive_packet(encoderCodecCtx, packet2) == 0) {
+        //                 // We have a packet, write it to the output file
+        //                 g_print("Packet Received\n");
+        //                 if (av_interleaved_write_frame(outFormatCtx, packet2) < 0) {
+        //                     fprintf(stderr, "Error writing packet\n");
+        //                     return -1;
+        //                 }
+        //                 // Unreference the packet
+        //                 av_packet_unref(packet);
+        //                 av_packet_unref(packet2);
+        //             }
+        //             // Free the packet
+        //             av_packet_unref(packet);
+        //             av_packet_unref(packet2);
+        //         }
+
+        //         // Free the packet
+        //         av_packet_unref(packet);
+        //         av_packet_unref(packet2);
+        //     }
+        // }
+
+        while (1) {
+            printf("Read Frame\n");
+            AVPacket* inputPacket = av_packet_alloc();
+            if (av_read_frame(pFormatCtx, inputPacket) < 0) {
+                // Break the loop if we've read all packets
+                av_packet_free(&inputPacket);
+                break;
+            }
+            if (inputPacket->stream_index == videoStream) {
+                printf("Send Packet\n");
+                if (avcodec_send_packet(pCodecCtx, inputPacket) < 0) {
+                    fprintf(stderr, "Error sending packet for decoding\n");
+                    av_packet_free(&inputPacket);
+                    return -1;
+                }
+                while (1) {
+                    printf("Receive Frame\n");
+                    AVFrame* frame = av_frame_alloc();
+                    if (avcodec_receive_frame(pCodecCtx, frame) < 0) {
+                        // Break the loop if no more frames
+                        av_frame_free(&frame);
+                        break;
+                    }
+                    if (avcodec_send_frame(encoderCodecCtx, frame) < 0) {
+                        fprintf(stderr, "Error sending frame for encoding\n");
+                        av_frame_free(&frame);
+                        av_packet_free(&inputPacket);
+                        return -1;
+                    }
+                    while (1) {
+                        printf("Receive Packet\n");
+                        AVPacket* outputPacket = av_packet_alloc();
+                        if (avcodec_receive_packet(encoderCodecCtx, outputPacket) < 0) {
+                            // Break the loop if no more packets
+                            av_packet_free(&outputPacket);
+                            break;
+                        }
+                        printf("Write Packet\n");
+                        if (av_write_frame(outFormatCtx, outputPacket) < 0) {
+                            fprintf(stderr, "Error writing packet\n");
+                            av_frame_free(&frame);
+                            av_packet_free(&inputPacket);
+                            av_packet_free(&outputPacket);
+                            return -1;
+                        }
+                        av_packet_free(&outputPacket);
+                    }
+                    av_frame_free(&frame);
+                }
+            }
+            av_packet_free(&inputPacket);
+        }
+
+        // flush the decoder
+        avcodec_send_packet(pCodecCtx, NULL);
+        while (avcodec_receive_frame(pCodecCtx, pFrame) == 0) {
+            avcodec_send_frame(encoderCodecCtx, pFrame);
+            av_frame_unref(pFrame);
+        }
+
+        // flush the encoder
+        avcodec_send_frame(encoderCodecCtx, NULL);
+        while (avcodec_receive_packet(encoderCodecCtx, packet) == 0) {
+            av_interleaved_write_frame(outFormatCtx, packet);
+            av_packet_unref(packet);
+        }
+    }
+
+    AVFrame* pFrameFinal = av_frame_alloc();
+    if (!pFrameFinal) {
+        g_print("Could not allocate video frame\n");
+        return -1;
+    }
+
+    g_print("Starting Encode Output...\n");
+
+    
+
     // Step 6: Process each frame (you might loop this part over your frames)
     // Assuming that pFrameFinal is the frame you want to write
     g_print("Write final frame (?)\n");
     AVPacket pkt = {0};
     av_init_packet(&pkt);
 
-    if (avcodec_send_frame(codecCtx, pFrameFinal) == 0) {
-        int ret = avcodec_receive_packet(codecCtx, &pkt);
+    if (avcodec_send_frame(encoderCodecCtx, pFrameFinal) == 0) {
+        int ret = avcodec_receive_packet(encoderCodecCtx, &pkt);
         if (ret < 0) {
             g_print("Error during encoding\n");
         } else {
             static int counter = 0;
             // Prepare packet for writing
             pkt.stream_index = outStream->index;
-            av_packet_rescale_ts(&pkt, codecCtx->time_base, outStream->time_base);
+            av_packet_rescale_ts(&pkt, encoderCodecCtx->time_base, outStream->time_base);
             pkt.pos = -1;
 
             // Write packet to output file
@@ -375,8 +531,10 @@ static int transform_video (GtkWidget *widget, gpointer data)
 
     g_print("Clean Up\n");
 
+    fclose(outfile);
+
     // Cleanup encode
-    avcodec_free_context(&codecCtx);
+    avcodec_free_context(&encoderCodecCtx);
     avformat_free_context(outFormatCtx);
     av_packet_free(&packet);
 
