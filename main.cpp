@@ -1,6 +1,7 @@
 #include <gtk/gtk.h>
 // #include <objbase.h>  // For CoInitializeEx(), COINIT_MULTITHREADED
 #include "creator.cpp"
+#include "recorder.cpp"
 
 void activate (GtkApplication *app,
                gpointer        user_data)
@@ -13,10 +14,10 @@ void activate (GtkApplication *app,
   gtk_window_set_title (GTK_WINDOW (window), "Window");
   
   // Here we construct the container that is going pack our button
-  button = gtk_button_new_with_label ("Transform Video");
+  button = gtk_button_new_with_label ("Print Surface Info");
 
   // Connect the "clicked" signal of the button to our callback
-  g_signal_connect (button, "clicked", G_CALLBACK (transform_video), NULL);
+  g_signal_connect (button, "clicked", G_CALLBACK (print_surface_info), NULL);
   
   // Add the button to the window
   gtk_window_set_child (GTK_WINDOW (window), button);
