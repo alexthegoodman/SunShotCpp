@@ -5,17 +5,22 @@
 
 #include "creator.cpp"
 #include "recorder.cpp"
+#include "shared.h"
 
+GMutex shared_mutex;
 GThread* recorder_thread = nullptr;
+std::vector<std::string> windows;
+HWND selectedWindow = nullptr;
 
 void start_recorder_thread() {
-  recorder_thread = g_thread_new("recorder_thread", start_recorder, nullptr);
+  recorder_thread = g_thread_new("recorder_thread", start_recorder, selectedWindow);
 }
 
 BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam)
 {
     char title[80];
     GetWindowText(hwnd,title,sizeof(title));
+    // get hwnd id
 
     // Check if window is visible and has a non-zero length title
     if(IsWindowVisible(hwnd) && strlen(title) != 0)
@@ -25,6 +30,18 @@ BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam)
     }
     
     return TRUE;
+}
+
+void window_selected(GtkComboBox *widget, gpointer user_data) {
+  // get selected window
+  int index = gtk_combo_box_get_active(widget);
+  g_mutex_lock(&shared_mutex);
+  if(index == 0) {
+    selectedWindow = nullptr;
+  } else {
+    selectedWindow = FindWindowA(NULL, windows[index-1].c_str());
+  }
+  g_mutex_unlock(&shared_mutex);
 }
 
 void activate (GtkApplication *app,
@@ -40,7 +57,6 @@ void activate (GtkApplication *app,
   gtk_window_set_default_size (GTK_WINDOW (window), 400, 200);
 
   // list screens and windows
-  std::vector<std::string> windows;
   EnumWindows(EnumWindowsProc, reinterpret_cast<LPARAM>(&windows));
 
   GtkWidget *comboBox = gtk_combo_box_text_new();
@@ -50,6 +66,7 @@ void activate (GtkApplication *app,
   for(auto& windowTitle : windows) {
       gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(comboBox), windowTitle.c_str());
   }
+  g_signal_connect (comboBox, "changed", G_CALLBACK (window_selected), NULL);
   
   button = gtk_button_new_with_label ("Start Recording");
   gtk_widget_set_margin_top (button, 10);

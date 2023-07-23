@@ -7,12 +7,14 @@
 #include <thread>
 #include <atomic>
 
+#include "shared.h"
+
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 
 std::atomic<bool> continueCapturing(false);
 
-void SetupDesktopDuplication() {
+void SetupDesktopDuplication(HWND sharedHwnd) {
     IDXGIDevice* dxgiDevice;
     IDXGIAdapter* dxgiAdapter;
     IDXGIOutput* dxgiOutput;
@@ -76,6 +78,12 @@ void SetupDesktopDuplication() {
         g_print("Failed to get output duplication\n");
         return;
     }
+
+    g_mutex_lock(&shared_mutex);
+    HWND hWnd = sharedHwnd;
+    g_mutex_unlock(&shared_mutex);
+
+    g_print("HWND: %p\n", hWnd);
 
     // Determine the duration of each frame at 30 FPS.
     auto frameDuration = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -169,7 +177,11 @@ void SetupDesktopDuplication() {
 void* start_recorder (void* args)
 {
     continueCapturing = true;
-    SetupDesktopDuplication();
+    // get selectedWindow from args
+    HWND selectedWindow = reinterpret_cast<HWND>(args);
+    g_print("Selected window: %p\n", selectedWindow);
+
+    SetupDesktopDuplication(selectedWindow);
 
     return nullptr;
 }
