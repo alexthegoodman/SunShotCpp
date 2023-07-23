@@ -3,10 +3,16 @@
 #include <dxgi1_2.h>
 #include <d3d11.h>
 
+#include <chrono>
+#include <thread>
+#include <atomic>
+
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 
-IDXGISurface1* SetupDesktopDuplication() {
+std::atomic<bool> continueCapturing(false);
+
+void SetupDesktopDuplication() {
     IDXGIDevice* dxgiDevice;
     IDXGIAdapter* dxgiAdapter;
     IDXGIOutput* dxgiOutput;
@@ -23,7 +29,7 @@ IDXGISurface1* SetupDesktopDuplication() {
     if (FAILED(hr)) {
         // Error handling
         g_print("Failed to create D3D device\n");
-        return nullptr;
+        return;
     }
 
     // Get DXGI device
@@ -32,7 +38,7 @@ IDXGISurface1* SetupDesktopDuplication() {
     if (FAILED(hr)) {
         // Error handling
         g_print("Failed to get DXGI device\n");
-        return nullptr;
+        return;
     }
 
     // Get DXGI adapter
@@ -41,7 +47,7 @@ IDXGISurface1* SetupDesktopDuplication() {
     if (FAILED(hr)) {
         // Error handling
         g_print("Failed to get DXGI adapter\n");
-        return nullptr;
+        return;
     }
 
     // Get DXGI output
@@ -50,7 +56,7 @@ IDXGISurface1* SetupDesktopDuplication() {
     if (FAILED(hr)) {
         // Error handling
         g_print("Failed to get DXGI output\n");
-        return nullptr;
+        return;
     }
 
     // Get DXGI output1
@@ -59,7 +65,7 @@ IDXGISurface1* SetupDesktopDuplication() {
     if (FAILED(hr)) {
         // Error handling
         g_print("Failed to get DXGI output1\n");
-        return nullptr;
+        return;
     }
 
     // Get output duplication
@@ -68,48 +74,81 @@ IDXGISurface1* SetupDesktopDuplication() {
     if (FAILED(hr)) {
         // Error handling
         g_print("Failed to get output duplication\n");
-        return nullptr;
+        return;
     }
 
-    // Get next frame
-    DXGI_OUTDUPL_FRAME_INFO frameInfo;
-    IDXGIResource* desktopResource = nullptr;
-    hr = dxgiOutputDuplication->AcquireNextFrame(0, &frameInfo, &desktopResource);
+    // Determine the duration of each frame at 30 FPS.
+    auto frameDuration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::duration<double>(1.0 / 30.0));
 
-    IDXGISurface1* desktopSurface = nullptr;
-    if (SUCCEEDED(hr)) {
+    while (continueCapturing) {
+        // Time point when we start capturing this frame.
+        auto frameStart = std::chrono::high_resolution_clock::now();
+
+        // Capture and process the frame...
+        IDXGIResource* desktopResource = nullptr;
+        DXGI_OUTDUPL_FRAME_INFO frameInfo;
+
+        // Acquire the next frame.
+        hr = dxgiOutputDuplication->AcquireNextFrame(1000, &frameInfo, &desktopResource); // Timeout after 1 second
+
+        if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
+            // No new frame within the timeout period, try again
+            continue;
+        }
+        else if (FAILED(hr)) {
+            // An error occurred, handle it here
+            g_print("An error occurred while capturing\n");
+            break;
+        }
+
+        // Query the IDXGISurface1 interface.
+        IDXGISurface1* desktopSurface = nullptr;
         hr = desktopResource->QueryInterface(__uuidof(IDXGISurface1), (void**)&desktopSurface);
 
         if (SUCCEEDED(hr)) {
-            // Do something with desktopSurface...
+            // Now that you have the IDXGISurface1, you can extract the bitmap data,
+            // convert it to the format that ffmpeg expects and feed it to your encoder.
 
-            // Clean up when you're done with it.
+            g_print("Captured a frame\n");
+
+            // Remember to release the IDXGISurface1 when you're done with it.
             desktopSurface->Release();
         }
 
-        // Make sure to release the resource when you're done with it.
+        // Release the IDXGIResource.
         desktopResource->Release();
+
+        // Release the frame when you're done with it.
+        dxgiOutputDuplication->ReleaseFrame();
+
+        // Time point after capturing the frame.
+        auto frameEnd = std::chrono::high_resolution_clock::now();
+
+        // Duration of the capture process.
+        auto captureDuration = std::chrono::duration_cast<std::chrono::milliseconds>(frameEnd - frameStart);
+
+        if (captureDuration < frameDuration) {
+            // If we finished capturing faster than our target frame rate,
+            // sleep for the remaining time.
+            std::this_thread::sleep_for(frameDuration - captureDuration);
+        }
     }
 
-    if (FAILED(hr)) {
-        // Error handling
-        g_print("Failed to get next frame\n");
-        return nullptr;
-    }
-
-    return desktopSurface;
+    // return 0;
 }
 
-static int print_surface_info (GtkWidget *widget, gpointer data)
+void* start_recorder (void* args)
 {
-    IDXGISurface1* desktopSurface = SetupDesktopDuplication();
+    continueCapturing = true;
+    SetupDesktopDuplication();
 
-    if (desktopSurface != nullptr) {
-        // You now have a DirectX surface that contains the desktop image
-        // You can use this surface with any DirectX API to manipulate the image or copy it to a different surface
-        // If you want to capture the desktop at a certain frame rate, you need to call AcquireNextFrame on a loop
-        g_print("Got desktop surface\n");
-    }
+    return nullptr;
+}
+
+static int stop_recorder (GtkWidget *widget, gpointer data)
+{
+    continueCapturing = false;
 
     return 0;
 }
