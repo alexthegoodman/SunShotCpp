@@ -112,6 +112,34 @@ void SetupDesktopDuplication() {
 
             g_print("Captured a frame\n");
 
+            // if (captureWindow != NULL) {
+            //     // capture window
+            //     // Get window rectangle
+            //     HWND hWnd = ...  // handle of your window
+            //     RECT windowRect;
+            //     GetWindowRect(hWnd, &windowRect);
+
+            //     // Create buffer for window image data
+            //     int windowWidth = windowRect.right - windowRect.left;
+            //     int windowHeight = windowRect.bottom - windowRect.top;
+            //     BYTE* windowBuffer = new BYTE[windowWidth * windowHeight * 4];  // assuming BGRA format
+                
+            //     // Copy image data row by row
+            //     for (int y = 0; y < windowHeight; y++) {
+            //         BYTE* srcRow = mappedRect.pBits + (windowRect.top + y) * mappedRect.Pitch;
+            //         BYTE* destRow = windowBuffer + y * windowWidth * 4;
+            //         memcpy(destRow, srcRow + windowRect.left * 4, windowWidth * 4);
+            //     }
+
+            //     dxgiSurface->Unmap();
+
+            //     // Now you can use windowBuffer for encoding with FFmpeg...
+                
+            //     delete[] windowBuffer;
+            // } else if (captureScreen != NULL) {
+            //     // capture entire screen
+            // }
+
             // Remember to release the IDXGISurface1 when you're done with it.
             desktopSurface->Release();
         }
