@@ -75,7 +75,7 @@ static int transform_video (GtkWidget *widget, gpointer data)
     avformat_network_init();
 
     // *** decode video ***
-    const char* filename = "C:\\Users\\alext\\projects\\common\\SunShotCpp\\stubs\\project1\\originalCapture.mp4";
+    const char* filename = "C:\\Users\\alext\\projects\\common\\SunShotCpp\\stubs\\project1\\basicCapture.mp4";
     const char* outputFilename = "C:\\Users\\alext\\projects\\common\\SunShotCpp\\stubs\\project1\\output.mp4";
 
     AVFormatContext* decoderFormatCtx = avformat_alloc_context();
@@ -148,37 +148,37 @@ static int transform_video (GtkWidget *widget, gpointer data)
         return -1;
     }
 
-    AVFrame* pFrame = av_frame_alloc();
-    AVFrame* pFrameRGB = av_frame_alloc();
-    if (pFrameRGB == NULL) {
-        g_print("Could not allocate frame\n");
-        return -1;
-    }
+    // AVFrame* pFrame = av_frame_alloc();
+    // AVFrame* pFrameRGB = av_frame_alloc();
+    // if (pFrameRGB == NULL) {
+    //     g_print("Could not allocate frame\n");
+    //     return -1;
+    // }
 
-    g_print("Prep SwS Context... %d x %d\n ", decoderCodecCtx->width, decoderCodecCtx->height);
+    // g_print("Prep SwS Context... %d x %d\n ", decoderCodecCtx->width, decoderCodecCtx->height);
 
-    printf("Source pixel format: %s\n", av_get_pix_fmt_name(decoderCodecCtx->pix_fmt));
-    printf("Destination pixel format: %s\n", av_get_pix_fmt_name(AV_PIX_FMT_RGB24));
+    // printf("Source pixel format: %s\n", av_get_pix_fmt_name(decoderCodecCtx->pix_fmt));
+    // printf("Destination pixel format: %s\n", av_get_pix_fmt_name(AV_PIX_FMT_RGB24));
 
-    uint8_t* buffer;
-    int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24, decoderCodecCtx->width, decoderCodecCtx->height, 1);
-    buffer = (uint8_t*)av_malloc(numBytes * sizeof(uint8_t));
-    av_image_fill_arrays(pFrameRGB->data, pFrameRGB->linesize, buffer, AV_PIX_FMT_RGB24, decoderCodecCtx->width, decoderCodecCtx->height, 1);
+    // uint8_t* buffer;
+    // int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24, decoderCodecCtx->width, decoderCodecCtx->height, 1);
+    // buffer = (uint8_t*)av_malloc(numBytes * sizeof(uint8_t));
+    // av_image_fill_arrays(pFrameRGB->data, pFrameRGB->linesize, buffer, AV_PIX_FMT_RGB24, decoderCodecCtx->width, decoderCodecCtx->height, 1);
 
-    g_print("Get SwS Context...\n");
+    // g_print("Get SwS Context...\n");
 
-    struct SwsContext* sws_ctx = sws_getContext(
-        decoderCodecCtx->width,
-        decoderCodecCtx->height,
-        decoderCodecCtx->pix_fmt,
-        decoderCodecCtx->width,
-        decoderCodecCtx->height,
-        AV_PIX_FMT_RGB24,
-        SWS_BILINEAR,
-        NULL,
-        NULL,
-        NULL
-    );
+    // struct SwsContext* sws_ctx = sws_getContext(
+    //     decoderCodecCtx->width,
+    //     decoderCodecCtx->height,
+    //     decoderCodecCtx->pix_fmt,
+    //     decoderCodecCtx->width,
+    //     decoderCodecCtx->height,
+    //     AV_PIX_FMT_RGB24,
+    //     SWS_BILINEAR,
+    //     NULL,
+    //     NULL,
+    //     NULL
+    // );
 
     // FILE *outfile = fopen(outputFilename, "wb");
     // if (!outfile) {
@@ -276,9 +276,10 @@ static int transform_video (GtkWidget *widget, gpointer data)
 
     g_print("Starting read frames...\n");
     // g_print("Stream Index: %d : %d\n", packet->stream_index, videoStream);
+    int frameIndex = 0;
 
     while (1) {
-        printf("Read Frame\n");
+        printf("Read Frame %d\n", frameIndex);
         AVPacket* inputPacket = av_packet_alloc();
         if (av_read_frame(decoderFormatCtx, inputPacket) < 0) {
             // Break the loop if we've read all packets
@@ -300,12 +301,73 @@ static int transform_video (GtkWidget *widget, gpointer data)
                     av_frame_free(&frame);
                     break;
                 }
-                if (avcodec_send_frame(encoderCodecCtx, frame) < 0) {
+
+                // *** Frame Presentation Transformation *** //
+
+                // Create a new AVFrame for the background.
+                AVFrame* bg_frame = av_frame_alloc();
+                bg_frame->format = AV_PIX_FMT_YUV420P; // Your desired format.
+                bg_frame->width = encoderCodecCtx->width;
+                bg_frame->height = encoderCodecCtx->height;
+                bg_frame->pts = av_rescale_q(frameIndex, encoderCodecCtx->time_base, encoderStream->time_base);
+                av_frame_get_buffer(bg_frame, 0);
+
+                // Fill the frame with your desired color.
+                // Note: The exact color values will depend on your pixel format.
+                // For YUV420P, you might fill with (0, 128, 128) for black, for example.
+                // or (130, 190, 45) for light blue
+                for (int y = 0; y < bg_frame->height; ++y) {
+                    for (int x = 0; x < bg_frame->width; ++x) {
+                        // Fill Y plane.
+                        bg_frame->data[0][y * bg_frame->linesize[0] + x] = 130; // Y
+                        // Fill U and V planes.
+                        if (y % 2 == 0 && x % 2 == 0) {
+                            bg_frame->data[1][(y/2) * bg_frame->linesize[1] + (x/2)] = 190; // U
+                            bg_frame->data[2][(y/2) * bg_frame->linesize[2] + (x/2)] = 45; // V
+                        }
+                    }
+                }
+
+                // Scale down the frame to half its size using libswscale.
+                struct SwsContext* swsCtx = sws_getContext(
+                    frame->width, frame->height, (enum AVPixelFormat)frame->format,
+                    frame->width/2, frame->height/2, (enum AVPixelFormat)frame->format,
+                    SWS_BILINEAR, NULL, NULL, NULL);
+
+                AVFrame* scaled_frame = av_frame_alloc();
+                scaled_frame->format = frame->format;
+                scaled_frame->width = frame->width / 2;
+                scaled_frame->height = frame->height / 2;
+                av_frame_get_buffer(scaled_frame, 0);
+
+                sws_scale(swsCtx, (const uint8_t* const*)frame->data, frame->linesize, 0, frame->height, scaled_frame->data, scaled_frame->linesize);
+                sws_freeContext(swsCtx);
+
+                // Insert your scaled frame into the background frame.
+                int offsetX = (bg_frame->width - scaled_frame->width) / 2; // Center the video.
+                int offsetY = (bg_frame->height - scaled_frame->height) / 2;
+                for (int y = 0; y < scaled_frame->height; ++y) {
+                    for (int x = 0; x < scaled_frame->width; ++x) {
+                        // Copy Y plane.
+                        bg_frame->data[0][(y+offsetY) * bg_frame->linesize[0] + (x+offsetX)] = scaled_frame->data[0][y * scaled_frame->linesize[0] + x];
+                        // Copy U and V planes.
+                        if (y % 2 == 0 && x % 2 == 0) {
+                            bg_frame->data[1][((y+offsetY)/2) * bg_frame->linesize[1] + ((x+offsetX)/2)] = scaled_frame->data[1][(y/2) * scaled_frame->linesize[1] + (x/2)];
+                            bg_frame->data[2][((y+offsetY)/2) * bg_frame->linesize[2] + ((x+offsetX)/2)] = scaled_frame->data[2][(y/2) * scaled_frame->linesize[2] + (x/2)];
+                        }
+                    }
+                }
+
+                av_frame_free(&frame); // We don't need the original frame anymore.
+                av_frame_free(&scaled_frame); // We don't need the scaled frame anymore.
+
+                if (avcodec_send_frame(encoderCodecCtx, bg_frame) < 0) {
                     fprintf(stderr, "Error sending frame for encoding\n");
-                    av_frame_free(&frame);
+                    av_frame_free(&bg_frame);
                     av_packet_free(&inputPacket);
                     return -1;
                 }
+
                 while (1) {
                     // printf("Receive Packet\n");
                     AVPacket* outputPacket = av_packet_alloc();
@@ -317,17 +379,18 @@ static int transform_video (GtkWidget *widget, gpointer data)
                     // printf("Write Packet\n");
                     if (av_write_frame(encoderFormatCtx, outputPacket) < 0) {
                         fprintf(stderr, "Error writing packet\n");
-                        av_frame_free(&frame);
+                        av_frame_free(&bg_frame);
                         av_packet_free(&inputPacket);
                         av_packet_free(&outputPacket);
                         return -1;
                     }
                     av_packet_free(&outputPacket);
                 }
-                av_frame_free(&frame);
+                av_frame_free(&bg_frame);
             }
         }
         av_packet_free(&inputPacket);
+        frameIndex++;
     }
 
     // // flush the decoder
@@ -346,38 +409,6 @@ static int transform_video (GtkWidget *widget, gpointer data)
 
     // TODO: write final frame (unnecessary?)
 
-    // AVFrame* pFrameFinal = av_frame_alloc();
-    // if (!pFrameFinal) {
-    //     g_print("Could not allocate video frame\n");
-    //     return -1;
-    // }
-
-    // Assuming that pFrameFinal is the frame you want to write
-    // g_print("Write final frame (?)\n");
-    // AVPacket pkt = {0};
-    // av_init_packet(&pkt);
-
-    // if (avcodec_send_frame(encoderCodecCtx, pFrameFinal) == 0) {
-    //     int ret = avcodec_receive_packet(encoderCodecCtx, &pkt);
-    //     if (ret < 0) {
-    //         g_print("Error during encoding\n");
-    //     } else {
-    //         static int counter = 0;
-    //         // Prepare packet for writing
-    //         pkt.stream_index = encoderStream->index;
-    //         av_packet_rescale_ts(&pkt, encoderCodecCtx->time_base, encoderStream->time_base);
-    //         pkt.pos = -1;
-
-    //         // Write packet to output file
-    //         if (av_interleaved_write_frame(encoderFormatCtx, &pkt) < 0) {
-    //             g_print("Error while writing video frame\n");
-    //             return -1;
-    //         }
-    //         av_packet_unref(&pkt);
-    //         counter++;
-    //     }
-    // }
-
     // Write file trailer and close the file
     g_print("Write trailer...\n");
     av_write_trailer(encoderFormatCtx);
@@ -395,9 +426,9 @@ static int transform_video (GtkWidget *widget, gpointer data)
     // av_packet_free(&packet);
 
     // cleanup decode
-    av_free(buffer);
-    av_frame_free(&pFrameRGB);
-    av_frame_free(&pFrame);
+    // av_free(buffer);
+    // av_frame_free(&pFrameRGB);
+    // av_frame_free(&pFrame);
     // av_frame_free(&pFrameFinal);
     avcodec_close(decoderCodecCtx);
     avformat_close_input(&decoderFormatCtx);

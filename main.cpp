@@ -50,6 +50,7 @@ void activate (GtkApplication *app,
   GtkWidget *window;
   GtkWidget *button;
   GtkWidget *button2;
+  GtkWidget *button3;
 
   // Create a new window, and set its title
   window = gtk_application_window_new (app);
@@ -76,11 +77,16 @@ void activate (GtkApplication *app,
   gtk_widget_set_margin_top (button2, 10);
   g_signal_connect (button2, "clicked", G_CALLBACK (stop_recorder), NULL);
 
+  button3 = gtk_button_new_with_label ("Transform Video");
+  gtk_widget_set_margin_top (button3, 10);
+  g_signal_connect (button3, "clicked", G_CALLBACK (transform_video), NULL);
+
   // combine items in grid
   GtkWidget *grid = gtk_grid_new ();
   gtk_grid_attach (GTK_GRID (grid), comboBox, 0, 0, 1, 1);
   gtk_grid_attach (GTK_GRID (grid), button, 0, 1, 1, 1);
   gtk_grid_attach (GTK_GRID (grid), button2, 0, 2, 1, 1);
+  gtk_grid_attach (GTK_GRID (grid), button3, 0, 3, 1, 1);
   gtk_window_set_child (GTK_WINDOW (window), grid);
   
   // Display the window

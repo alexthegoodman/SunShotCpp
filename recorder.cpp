@@ -109,6 +109,9 @@ void SetupDesktopDuplication(HWND sharedHwnd) {
     windowWidth = (windowWidth % 2 == 0) ? windowWidth : windowWidth - 1;
     windowHeight = (windowHeight % 2 == 0) ? windowHeight : windowHeight - 1;
 
+    int fpsInt = 15;
+    double fpsDouble = 15.0;
+
     // *** Setup FFmpeg *** //
     AVFormatContext *encoderFormatCtx = NULL;
     avformat_alloc_output_context2(&encoderFormatCtx, NULL, NULL, outputFilename);
@@ -144,15 +147,17 @@ void SetupDesktopDuplication(HWND sharedHwnd) {
     encoderCodecCtx->bit_rate = 5000 * 1000; // 5,000 Kbps = 5,000,000 bps
     encoderCodecCtx->width = windowWidth;
     encoderCodecCtx->height = windowHeight;
-    encoderCodecCtx->time_base = (AVRational){1, 30}; // 30FPS
-    encoderCodecCtx->framerate = (AVRational){30, 1}; // 30FPS
-    encoderCodecCtx->gop_size = 10;
-    encoderCodecCtx->max_b_frames = 1;
+    encoderCodecCtx->time_base = (AVRational){1, fpsInt}; // 30FPS
+    encoderCodecCtx->framerate = (AVRational){fpsInt, 1}; // 30FPS
+    encoderCodecCtx->gop_size = 15; // distance between keyframes, larger GOP size will reducce file size and quality
+    encoderCodecCtx->max_b_frames = 3; // better for motion, better for file size, increasing encode / decode time, can be 0-16
     encoderCodecCtx->pix_fmt = AV_PIX_FMT_YUV420P;
 
+    // g_print("Encoder time_base %d %d %d\n", encoderCodecCtx->time_base, encoderCodecCtx->time_base.num, encoderCodecCtx->time_base.den);
+
     encoderStream->time_base = encoderCodecCtx->time_base;
-    encoderStream->r_frame_rate = encoderCodecCtx->framerate;
-    encoderStream->avg_frame_rate = encoderCodecCtx->framerate;
+    // encoderStream->r_frame_rate = encoderCodecCtx->framerate;
+    // encoderStream->avg_frame_rate = encoderCodecCtx->framerate;
 
     // Step 3: Open the codec and add the stream info to the format context
     if (avcodec_open2(encoderCodecCtx, NULL, NULL) < 0) {
@@ -183,7 +188,7 @@ void SetupDesktopDuplication(HWND sharedHwnd) {
 
     // Determine the duration of each frame at 30 FPS.
     auto frameDuration = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::duration<double>(1.0 / 30.0));
+        std::chrono::duration<double>(1.0 / fpsDouble));
     int frameIndex = 0;
     
     while (continueCapturing) {
@@ -302,26 +307,26 @@ void SetupDesktopDuplication(HWND sharedHwnd) {
                 memcpy(src_data[0], windowBuffer, windowWidth * windowHeight * bytes_per_pixel);
                 sws_scale(swsCtx, src_data, src_linesize, 0, windowHeight, dst_data, dst_linesize);
 
-                // check dst_data
-                for (int i = 0; i < 4; i++) {
-                    if (dst_data[i] == nullptr) {
-                        // [3] should by null for YUV
-                        g_print("dst_data[%d] is null\n", i);
-                    }
-                }
+                // // check dst_data
+                // for (int i = 0; i < 4; i++) {
+                //     if (dst_data[i] == nullptr) {
+                //         // [3] should by null for YUV
+                //         g_print("dst_data[%d] is null\n", i);
+                //     }
+                // }
 
-                // check dst_linesize
-                for (int i = 0; i < 4; i++) {
-                    if (dst_linesize[i] == 0) {
-                        // [3] should by null for YUV here also
-                        g_print("dst_linesize[%d] is 0\n", i);
-                    }
-                    else {
-                        g_print("dst_linesize[%d] = %d\n", i, dst_linesize[i]);
-                    }
-                }
+                // // check dst_linesize
+                // for (int i = 0; i < 4; i++) {
+                //     if (dst_linesize[i] == 0) {
+                //         // [3] should by null for YUV here also
+                //         g_print("dst_linesize[%d] is 0\n", i);
+                //     }
+                //     else {
+                //         g_print("dst_linesize[%d] = %d\n", i, dst_linesize[i]);
+                //     }
+                // }
 
-                g_print("Allocating frame...\n");
+                // g_print("Allocating frame...\n");
 
                 // Create AVFrame and set its data and linesize
                 AVFrame *frame = av_frame_alloc();
@@ -338,6 +343,7 @@ void SetupDesktopDuplication(HWND sharedHwnd) {
                 frame->time_base = encoderCodecCtx->time_base;
 
                 g_print("Sending frame... %d\n", frameIndex);
+                // g_print("Check pts and timebase %d %d\n", frame->pts, av_rescale_q(frameIndex, encoderCodecCtx->time_base, encoderStream->time_base));
 
                 // Send the frame to the encoder
                 ret = avcodec_send_frame(encoderCodecCtx, frame);
@@ -348,7 +354,7 @@ void SetupDesktopDuplication(HWND sharedHwnd) {
                     return;
                 }
 
-                g_print("Writing frame...\n");
+                //g_print("Writing frame...\n");
 
                 // Receive the encoded packets from the encoder
                 AVPacket *packet = av_packet_alloc();
@@ -395,7 +401,7 @@ void SetupDesktopDuplication(HWND sharedHwnd) {
         }
     }
 
-    encoderStream->duration = frameIndex * frameDuration.count();
+    // encoderStream->duration = frameIndex * frameDuration.count();
 
     // Flush the encoder
     avcodec_send_frame(encoderCodecCtx, NULL);
