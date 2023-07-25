@@ -288,16 +288,18 @@ static int transform_video (GtkWidget *widget, gpointer data)
                     }
                 }
 
-                // Scale down the frame to half its size using libswscale.
+                // Scale down the frame using libswscale.
+                double scaleMultiple = 0.75;
+
                 struct SwsContext* swsCtx = sws_getContext(
                     frame->width, frame->height, (enum AVPixelFormat)frame->format,
-                    frame->width/2, frame->height/2, (enum AVPixelFormat)frame->format,
+                    frame->width * scaleMultiple, frame->height * scaleMultiple, (enum AVPixelFormat)frame->format,
                     SWS_BILINEAR, NULL, NULL, NULL);
 
                 AVFrame* scaled_frame = av_frame_alloc();
                 scaled_frame->format = frame->format;
-                scaled_frame->width = frame->width / 2;
-                scaled_frame->height = frame->height / 2;
+                scaled_frame->width = frame->width * scaleMultiple;
+                scaled_frame->height = frame->height * scaleMultiple;
                 av_frame_get_buffer(scaled_frame, 0);
 
                 sws_scale(swsCtx, (const uint8_t* const*)frame->data, frame->linesize, 0, frame->height, scaled_frame->data, scaled_frame->linesize);
@@ -328,23 +330,8 @@ static int transform_video (GtkWidget *widget, gpointer data)
                 int zoomStartFrame = 0;
                 int zoomEndFrame = 60; // 30 frames = 1 second at 30 fps
 
-                // if (frameIndex >= zoomStartFrame && frameIndex <= zoomEndFrame) {
-                //     // The zoom effect is in progress.
-                //     // Gradually reduce the target dimensions from the full frame size to the desired zoom level.
-                    
-                //     // double targetMultiplier = 1.0 - (frameIndex - zoomStartFrame) / (double)(zoomEndFrame - zoomStartFrame);
-                //     // g_print("targetMultiplier %f\n", targetMultiplier);
-                    
-                //     double minZoom = 0.5;  // stop at 50%
-                //     double targetMultiplier = minZoom + (1.0 - minZoom) * (1.0 - (frameIndex - zoomStartFrame) / (double)(zoomEndFrame - zoomStartFrame));
-                //     g_print("targetMultiplier %f\n", targetMultiplier);
-
-                //     targetWidth = bg_frame->width * targetMultiplier;
-                //     targetHeight = bg_frame->height * targetMultiplier;
-                // } 
-
                 if (frameIndex >= zoomStartFrame && frameIndex <= zoomEndFrame) {
-                    double targetMultiplier = 0.8; // the zoom level we want to end up at
+                    double targetMultiplier = 0.5; // the zoom level we want to end up at
                     double displacement = springAnimation(targetMultiplier, currentMultiplier, velocity, tension, friction);
                     
                     // Update 'current' variables for the next frame
@@ -370,8 +357,10 @@ static int transform_video (GtkWidget *widget, gpointer data)
                 static double velocityWidth = 0;
                 static double velocityHeight = 0;
 
-                double tension = 0.8;  // Determine appropriate values
-                double friction = 0.9;  // Determine appropriate values
+                // Intentionally different than values for above springAnimation
+                double tension = 0.8;
+                double friction = 0.9;
+
                 double displacementWidth = springAnimation(targetWidth, currentWidth, velocityWidth, tension, friction);
                 double displacementHeight = springAnimation(targetHeight, currentHeight, velocityHeight, tension, friction);
                 currentWidth += displacementWidth;
@@ -387,8 +376,15 @@ static int transform_video (GtkWidget *widget, gpointer data)
 
                 // Calculate the top left position of the zoomed portion.
                 // Center the zoomed portion in the frame.
-                int zoomTop = (bg_frame->height - zoomHeight) / 2;
-                int zoomLeft = (bg_frame->width - zoomWidth) / 2;
+                // int zoomTop = (bg_frame->height - zoomHeight) / 2;
+                // int zoomLeft = (bg_frame->width - zoomWidth) / 2;
+
+                int mouseX = bg_frame->width / 2, mouseY = 500;
+
+                // Calculate the top left position of the zoom frame,
+                // making sure it's centered on the mouse position and not going out of bounds.
+                int zoomLeft = std::max(0, std::min(static_cast<int>(std::round(mouseX - currentWidth / 2)), static_cast<int>(bg_frame->width - currentWidth)));
+                int zoomTop = std::max(0, std::min(static_cast<int>(std::round(mouseY - currentHeight / 2)), static_cast<int>(bg_frame->height - currentHeight)));
 
                 // assure even numbers
                 zoomTop = (zoomTop / 2) * 2;
