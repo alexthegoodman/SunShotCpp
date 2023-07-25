@@ -7,6 +7,10 @@
 #include <thread>
 #include <atomic>
 
+#include <windows.h>
+#include <fstream>
+#include <nlohmann/json.hpp>  // JSON for Modern C++
+
 extern "C" {
     #include <libavutil/avutil.h>
     #include <libavformat/avformat.h>
@@ -19,6 +23,9 @@ extern "C" {
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
+
+using json = nlohmann::json;
+using namespace std::chrono;
 
 std::atomic<bool> continueCapturing(false);
 
@@ -437,6 +444,63 @@ void SetupDesktopDuplication(HWND sharedHwnd) {
     // return 0;
 }
 
+void* record_mouse (void* args)
+{
+    // Create a json object to store mouse events
+    json j;
+    j["mouseEvents"] = json::array();
+
+    // Get the start time of the recording
+    auto start_time = high_resolution_clock::now();
+
+    // Previous mouse position
+    POINT prevPos;
+    GetCursorPos(&prevPos);
+
+    // g_print("prevPos x: %d y: %d\n", prevPos.x, prevPos.y);
+
+    // Record mouse position as long as continueCapturing is true
+    while (continueCapturing) {
+        // Get current mouse position
+        POINT pos;
+        GetCursorPos(&pos);
+
+        // g_print("current pos x: %d y: %d\n", pos.x, pos.y);
+
+        // Check if mouse has moved
+        if (pos.x != prevPos.x || pos.y != prevPos.y) {
+            // Calculate the timestamp
+            auto now = high_resolution_clock::now();
+            auto timestamp = duration_cast<milliseconds>(now - start_time).count();
+
+            // Get the state of the mouse buttons
+            bool leftButton = GetAsyncKeyState(VK_LBUTTON) & 0x8000;
+            bool rightButton = GetAsyncKeyState(VK_RBUTTON) & 0x8000;
+
+            // Store the event in the json object
+            j["mouseEvents"].push_back({
+                {"timeStamp", timestamp},
+                {"x", pos.x},
+                {"y", pos.y},
+                {"leftButton", leftButton},
+                {"rightButton", rightButton}
+            });
+
+            // Update previous position
+            prevPos = pos;
+        }
+
+        // You might want to add a small delay here to avoid using 100% CPU
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    // Save the json object to a file
+    std::ofstream file("mouseEvents.json");
+    file << j;
+
+    return nullptr;
+}
+
 void* start_recorder (void* args)
 {
     continueCapturing = true;
@@ -455,3 +519,4 @@ static int stop_recorder (GtkWidget *widget, gpointer data)
 
     return 0;
 }
+

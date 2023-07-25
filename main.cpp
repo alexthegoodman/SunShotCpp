@@ -9,11 +9,13 @@
 
 GMutex shared_mutex;
 GThread* recorder_thread = nullptr;
+GThread* record_mouse_thread = nullptr;
 std::vector<std::string> windows;
 HWND selectedWindow = nullptr;
 
 void start_recorder_thread() {
   recorder_thread = g_thread_new("recorder_thread", start_recorder, selectedWindow);
+  record_mouse_thread = g_thread_new("record_mouse_thread", record_mouse, NULL);
 }
 
 BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam)
