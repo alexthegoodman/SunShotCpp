@@ -77,6 +77,7 @@ static int transform_video (GtkWidget *widget, gpointer data)
     // *** decode video ***
     const char* filename = "C:\\Users\\alext\\projects\\common\\SunShotCpp\\stubs\\project1\\basicCapture.mp4";
     const char* outputFilename = "C:\\Users\\alext\\projects\\common\\SunShotCpp\\stubs\\project1\\output.mp4";
+    int fpsInt = 15;
 
     AVFormatContext* decoderFormatCtx = avformat_alloc_context();
     if (avformat_open_input(&decoderFormatCtx, filename, NULL, NULL) != 0) {
@@ -110,18 +111,12 @@ static int transform_video (GtkWidget *widget, gpointer data)
         return -1;
     }
 
-    // AVCodecContext* decoderCodecCtx = decoderFormatCtx->streams[videoStream]->codec;
-
     g_print("Allocate Context...\n");
 
     AVCodecContext *decoderCodecCtx = avcodec_alloc_context3(NULL);
     if (!decoderCodecCtx) {
         g_print("Could not allocate video codec context\n");
     }
-
-    // decoderCodecCtx->codec_id = codecpar->codec_id;
-    // decoderCodecCtx->width = codecpar->width;
-    // decoderCodecCtx->height = codecpar->height;
 
     if (avcodec_parameters_to_context(decoderCodecCtx, codecpar) < 0) {
         // Handle error
@@ -130,11 +125,6 @@ static int transform_video (GtkWidget *widget, gpointer data)
 
     g_print("Find Decoder... %d\n", decoderCodecCtx->codec_id);
 
-    // const AVCodec* decoderCodec = avcodec_find_decoder(decoderCodecCtx->codec_id);
-    // if (decoderCodec == NULL) {
-    //     g_print("Unsupported codec\n");
-    //     return -1;
-    // }
     const AVCodec* decoderCodec = avcodec_find_decoder_by_name("h264");
     if (decoderCodec == NULL) {
         g_print("Unsupported codec\n");
@@ -147,44 +137,6 @@ static int transform_video (GtkWidget *widget, gpointer data)
         g_print("Could not open codec\n");
         return -1;
     }
-
-    // AVFrame* pFrame = av_frame_alloc();
-    // AVFrame* pFrameRGB = av_frame_alloc();
-    // if (pFrameRGB == NULL) {
-    //     g_print("Could not allocate frame\n");
-    //     return -1;
-    // }
-
-    // g_print("Prep SwS Context... %d x %d\n ", decoderCodecCtx->width, decoderCodecCtx->height);
-
-    // printf("Source pixel format: %s\n", av_get_pix_fmt_name(decoderCodecCtx->pix_fmt));
-    // printf("Destination pixel format: %s\n", av_get_pix_fmt_name(AV_PIX_FMT_RGB24));
-
-    // uint8_t* buffer;
-    // int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24, decoderCodecCtx->width, decoderCodecCtx->height, 1);
-    // buffer = (uint8_t*)av_malloc(numBytes * sizeof(uint8_t));
-    // av_image_fill_arrays(pFrameRGB->data, pFrameRGB->linesize, buffer, AV_PIX_FMT_RGB24, decoderCodecCtx->width, decoderCodecCtx->height, 1);
-
-    // g_print("Get SwS Context...\n");
-
-    // struct SwsContext* sws_ctx = sws_getContext(
-    //     decoderCodecCtx->width,
-    //     decoderCodecCtx->height,
-    //     decoderCodecCtx->pix_fmt,
-    //     decoderCodecCtx->width,
-    //     decoderCodecCtx->height,
-    //     AV_PIX_FMT_RGB24,
-    //     SWS_BILINEAR,
-    //     NULL,
-    //     NULL,
-    //     NULL
-    // );
-
-    // FILE *outfile = fopen(outputFilename, "wb");
-    // if (!outfile) {
-    //     fprintf(stderr, "Could not open output file\n");
-    //     return -1;
-    // }
 
     // *** prep enncoding ***
     // Create output context
@@ -220,8 +172,8 @@ static int transform_video (GtkWidget *widget, gpointer data)
     encoderCodecCtx->bit_rate = decoderCodecCtx->bit_rate; 
     encoderCodecCtx->width = decoderCodecCtx->width;
     encoderCodecCtx->height = decoderCodecCtx->height;
-    encoderCodecCtx->time_base = (AVRational){1, 30}; // 30FPS
-    encoderCodecCtx->framerate = (AVRational){30, 1}; // 30FPS
+    encoderCodecCtx->time_base = (AVRational){1, fpsInt}; // 30FPS
+    encoderCodecCtx->framerate = (AVRational){fpsInt, 1}; // 30FPS
     encoderCodecCtx->gop_size = 10;
     encoderCodecCtx->max_b_frames = 1;
     encoderCodecCtx->pix_fmt = AV_PIX_FMT_YUV420P;
@@ -276,6 +228,14 @@ static int transform_video (GtkWidget *widget, gpointer data)
 
     g_print("Starting read frames...\n");
     // g_print("Stream Index: %d : %d\n", packet->stream_index, videoStream);
+    // Initialize these at the start of the animation (i.e., when frameIndex == zoomStartFrame)
+    double currentMultiplier = 1.0;
+    double velocity = 0.0;
+
+    // Set the tension and friction to control the behavior of the spring.
+    double tension = 0.0001;
+    double friction = 0.0002;
+
     int frameIndex = 0;
 
     while (1) {
@@ -309,7 +269,7 @@ static int transform_video (GtkWidget *widget, gpointer data)
                 bg_frame->format = AV_PIX_FMT_YUV420P; // Your desired format.
                 bg_frame->width = encoderCodecCtx->width;
                 bg_frame->height = encoderCodecCtx->height;
-                bg_frame->pts = av_rescale_q(frameIndex, encoderCodecCtx->time_base, encoderStream->time_base);
+                // bg_frame->pts = av_rescale_q(frameIndex, encoderCodecCtx->time_base, encoderStream->time_base);
                 av_frame_get_buffer(bg_frame, 0);
 
                 // Fill the frame with your desired color.
@@ -358,12 +318,129 @@ static int transform_video (GtkWidget *widget, gpointer data)
                     }
                 }
 
+                // Determine the portion of the background to zoom in on.
+                // Start with the entire frame and gradually decrease these dimensions.
+                // Use your springAnimation function to animate this process.
+                // You will need to determine appropriate values for these variables.
+                static double targetWidth = bg_frame->width;
+                static double targetHeight = bg_frame->height;
+
+                int zoomStartFrame = 0;
+                int zoomEndFrame = 60; // 30 frames = 1 second at 30 fps
+
+                // if (frameIndex >= zoomStartFrame && frameIndex <= zoomEndFrame) {
+                //     // The zoom effect is in progress.
+                //     // Gradually reduce the target dimensions from the full frame size to the desired zoom level.
+                    
+                //     // double targetMultiplier = 1.0 - (frameIndex - zoomStartFrame) / (double)(zoomEndFrame - zoomStartFrame);
+                //     // g_print("targetMultiplier %f\n", targetMultiplier);
+                    
+                //     double minZoom = 0.5;  // stop at 50%
+                //     double targetMultiplier = minZoom + (1.0 - minZoom) * (1.0 - (frameIndex - zoomStartFrame) / (double)(zoomEndFrame - zoomStartFrame));
+                //     g_print("targetMultiplier %f\n", targetMultiplier);
+
+                //     targetWidth = bg_frame->width * targetMultiplier;
+                //     targetHeight = bg_frame->height * targetMultiplier;
+                // } 
+
+                if (frameIndex >= zoomStartFrame && frameIndex <= zoomEndFrame) {
+                    double targetMultiplier = 0.8; // the zoom level we want to end up at
+                    double displacement = springAnimation(targetMultiplier, currentMultiplier, velocity, tension, friction);
+                    
+                    // Update 'current' variables for the next frame
+                    velocity += displacement;
+                    currentMultiplier += velocity;
+
+                    // make sure the multiplier is within the desired range (?)
+                    currentMultiplier = currentMultiplier > 1.0 ? 1.0 : currentMultiplier < targetMultiplier ? targetMultiplier : currentMultiplier;
+
+                    g_print("currentMultiplier %f\n", currentMultiplier);
+
+                    targetWidth = bg_frame->width * currentMultiplier;
+                    targetHeight = bg_frame->height * currentMultiplier;
+                } else if (frameIndex > zoomEndFrame) {
+                    // The zoom effect has ended.
+                    // Keep the target dimensions at the desired zoom level.
+                    targetWidth = bg_frame->width;
+                    targetHeight = bg_frame->height;
+                }
+
+                static double currentWidth = bg_frame->width;
+                static double currentHeight = bg_frame->height;
+                static double velocityWidth = 0;
+                static double velocityHeight = 0;
+
+                double tension = 0.8;  // Determine appropriate values
+                double friction = 0.9;  // Determine appropriate values
+                double displacementWidth = springAnimation(targetWidth, currentWidth, velocityWidth, tension, friction);
+                double displacementHeight = springAnimation(targetHeight, currentHeight, velocityHeight, tension, friction);
+                currentWidth += displacementWidth;
+                currentHeight += displacementHeight;
+                velocityWidth += displacementWidth;
+                velocityHeight += displacementHeight;
+
+                // Make sure the dimensions are integers and within the frame size.
+                int zoomWidth = round(currentWidth);
+                zoomWidth = zoomWidth > bg_frame->width ? bg_frame->width : zoomWidth < 1 ? 1 : zoomWidth;
+                int zoomHeight = round(currentHeight);
+                zoomHeight = zoomHeight > bg_frame->height ? bg_frame->height : zoomHeight < 1 ? 1 : zoomHeight;
+
+                // Calculate the top left position of the zoomed portion.
+                // Center the zoomed portion in the frame.
+                int zoomTop = (bg_frame->height - zoomHeight) / 2;
+                int zoomLeft = (bg_frame->width - zoomWidth) / 2;
+
+                // assure even numbers
+                zoomTop = (zoomTop / 2) * 2;
+                zoomLeft = (zoomLeft / 2) * 2;
+
+                // Create a new AVFrame for the zoomed portion.
+                AVFrame* zoom_frame = av_frame_alloc();
+                zoom_frame->format = bg_frame->format;
+                zoom_frame->width = bg_frame->width; // Keep the output frame size the same.
+                zoom_frame->height = bg_frame->height;
+                zoom_frame->pts = av_rescale_q(frameIndex, encoderCodecCtx->time_base, encoderStream->time_base);
+                av_frame_get_buffer(zoom_frame, 0);
+
+                // g_print("Zoom Frame: %d x %d\n", zoomWidth, zoomHeight);
+                // g_print("Diagnostic Info: %d x %d\n", zoom_frame->width, zoom_frame->height);
+                // g_print("More Info: %d, %d\n", zoomTop, zoomLeft);
+
+                // Scale up the zoomed portion to the output frame size using libswscale.
+                struct SwsContext* swsCtxZoom = sws_getContext(
+                    zoomWidth, zoomHeight, (enum AVPixelFormat)bg_frame->format,
+                    zoom_frame->width, zoom_frame->height, (enum AVPixelFormat)zoom_frame->format,
+                    SWS_BILINEAR, NULL, NULL, NULL);
+
+                // Get pointers to the zoomed portion in the background frame.
+                uint8_t* zoomData[3];
+                zoomData[0] = &bg_frame->data[0][zoomTop * bg_frame->linesize[0] + zoomLeft];
+                if (zoomTop % 2 == 0 && zoomLeft % 2 == 0) {
+                    zoomData[1] = &bg_frame->data[1][(zoomTop/2) * bg_frame->linesize[1] + (zoomLeft/2)];
+                    zoomData[2] = &bg_frame->data[2][(zoomTop/2) * bg_frame->linesize[2] + (zoomLeft/2)];
+                } else {
+                    zoomData[1] = NULL;
+                    zoomData[2] = NULL;
+                }
+
+                sws_scale(swsCtxZoom, (const uint8_t* const*)zoomData, bg_frame->linesize, 0, zoomHeight, zoom_frame->data, zoom_frame->linesize);
+
+                // check zoomData
+                // for (int i = 0; i < 3; i++) {
+                //     if (zoomData[i] == nullptr) {
+                //         g_print("zoomData[%d] is null\n", i);
+                //     }
+                // }
+
+                sws_freeContext(swsCtxZoom);
+
+                av_frame_free(&bg_frame); // We don't need the original background frame anymore.
                 av_frame_free(&frame); // We don't need the original frame anymore.
                 av_frame_free(&scaled_frame); // We don't need the scaled frame anymore.
 
-                if (avcodec_send_frame(encoderCodecCtx, bg_frame) < 0) {
+                if (avcodec_send_frame(encoderCodecCtx, zoom_frame) < 0) {
                     fprintf(stderr, "Error sending frame for encoding\n");
-                    av_frame_free(&bg_frame);
+                    av_frame_free(&zoom_frame);
                     av_packet_free(&inputPacket);
                     return -1;
                 }
