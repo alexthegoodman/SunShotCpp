@@ -116,6 +116,19 @@ void SetupDesktopDuplication(HWND sharedHwnd) {
     windowWidth = (windowWidth % 2 == 0) ? windowWidth : windowWidth - 1;
     windowHeight = (windowHeight % 2 == 0) ? windowHeight : windowHeight - 1;
 
+    int windowY = windowRect.top;
+    int windowX = windowRect.left;
+
+    // save window dimensions and position to json file
+    json j;
+    j["windowWidth"] = windowWidth;
+    j["windowHeight"] = windowHeight;
+    j["windowX"] = windowX;
+    j["windowY"] = windowY;
+
+    std::ofstream file("stubs/project1/windowData.json");
+    file << j;
+
     int fpsInt = 15;
     double fpsDouble = 15.0;
 
@@ -495,7 +508,7 @@ void* record_mouse (void* args)
     }
 
     // Save the json object to a file
-    std::ofstream file("mouseEvents.json");
+    std::ofstream file("stubs/project1/mouseEvents.json");
     file << j;
 
     return nullptr;
