@@ -1,4 +1,7 @@
 #include <gtk/gtk.h>
+#include <nlohmann/json.hpp>
+
+#include <fstream>
 
 extern "C" {
     #include <libavutil/avutil.h>
@@ -7,6 +10,22 @@ extern "C" {
     #include <libswscale/swscale.h>
     #include <libavcodec/avcodec.h>
 }
+
+using json = nlohmann::json;
+
+struct ZoomInfo {
+    int startTimestamp;
+    int endTimestamp;
+    double zoom;
+    // animationTension
+    // animationFriction
+    // animationDuration
+};
+
+std::vector<ZoomInfo> mockZoomInfo = {
+    {1000, 6000, 0.5},
+    {9000, 14000, 0.6}
+};
 
 static void print_version_info(GtkWidget *widget, gpointer data) {
     const char* info1 = av_version_info();
@@ -60,15 +79,44 @@ double springAnimation(double target, double current, double velocity, double te
     double dampingForce = -velocity;
     double force = springForce * tension + dampingForce * friction;
 
+    // printf("Forces: %f %f %f %f %f\n", force, springForce, tension, friction, dampingForce);
+
     double acceleration = force;
     double newVelocity = velocity + acceleration;
     double displacement = newVelocity;
+
+    // printf("Spring Animation: %f %f %f %f %f\n", acceleration, newVelocity, displacement, current, target);
 
     return displacement;
 }
 
 static int transform_video (GtkWidget *widget, gpointer data)
 {   
+    g_print("Opening Mouse Events...\n");
+
+    std::ifstream mouseEventsFile("stubs/project1/mouseEvents.json");
+    
+    if (!mouseEventsFile.is_open()) {
+        g_print("Could not open mouse events file\n");
+        return -1;
+    }
+
+    json mouseEventsJson;
+    mouseEventsFile >> mouseEventsJson;
+    
+    if (mouseEventsJson.find("mouseEvents") == mouseEventsJson.end()) {
+        g_print("Could not find mouse events\n");
+        return -1;
+    }
+
+    mouseEventsJson = mouseEventsJson["mouseEvents"];
+
+    g_print("Opening Window Data...\n");
+
+    std::ifstream windowDataFile("stubs/project1/windowData.json");
+    json windowDataJson;
+    windowDataFile >> windowDataJson;
+
     g_print("Starting Transform...\n");
 
     // Initialize FFmpeg
@@ -207,22 +255,6 @@ static int transform_video (GtkWidget *widget, gpointer data)
         return -1;
     }
 
-    // int frameFinished;
-    // AVPacket packet;
-    // AVPacket* packet = av_packet_alloc();
-    // if (!packet) {
-    //     // handle error, e.g. out of memory
-    //     g_print("Could not allocate packet\n");
-    //     return -1;
-    // }
-
-    // AVPacket* packet2 = av_packet_alloc();
-    // if (!packet2) {
-    //     // handle error, e.g. out of memory
-    //     g_print("Could not allocate packet2\n");
-    //     return -1;
-    // }
-
     int y = 0;
     double zoom = 1.0;
 
@@ -232,11 +264,17 @@ static int transform_video (GtkWidget *widget, gpointer data)
     double currentMultiplier = 1.0;
     double velocity = 0.0;
 
-    // Set the tension and friction to control the behavior of the spring.
-    double tension = 0.0001;
-    double friction = 0.0002;
-
     int frameIndex = 0;
+
+    auto startTime = std::chrono::high_resolution_clock::now();
+
+    double mouseX = 0, mouseY = 0;
+    double currentMouseX = 0, currentMouseY = 0;
+    double velocityMouseX = 0, velocityMouseY = 0;
+    int zoomTop = 0, zoomLeft = 0;
+    bool zoomingIn = false;
+    static double velocityWidth = 0; // move outside loop and into reset?
+    static double velocityHeight = 0;
 
     while (1) {
         printf("Read Frame %d\n", frameIndex);
@@ -272,6 +310,8 @@ static int transform_video (GtkWidget *widget, gpointer data)
                 // bg_frame->pts = av_rescale_q(frameIndex, encoderCodecCtx->time_base, encoderStream->time_base);
                 av_frame_get_buffer(bg_frame, 0);
 
+                //  *** Background / Gradient *** //
+
                 // Fill the frame with your desired color.
                 // Note: The exact color values will depend on your pixel format.
                 // For YUV420P, you might fill with (0, 128, 128) for black, for example.
@@ -287,6 +327,8 @@ static int transform_video (GtkWidget *widget, gpointer data)
                         }
                     }
                 }
+
+                // *** Inset Video *** //
 
                 // Scale down the frame using libswscale.
                 double scaleMultiple = 0.75;
@@ -320,6 +362,13 @@ static int transform_video (GtkWidget *widget, gpointer data)
                     }
                 }
 
+                // *** Zoom *** //
+                // auto currentTime = std::chrono::high_resolution_clock::now();
+                // auto timeElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime).count();
+                int timeElapsed = frameIndex * 1000 / fpsInt;
+
+                g_print("Time Elapsed: %d\n", timeElapsed);
+
                 // Determine the portion of the background to zoom in on.
                 // Start with the entire frame and gradually decrease these dimensions.
                 // Use your springAnimation function to animate this process.
@@ -327,39 +376,78 @@ static int transform_video (GtkWidget *widget, gpointer data)
                 static double targetWidth = bg_frame->width;
                 static double targetHeight = bg_frame->height;
 
-                int zoomStartFrame = 0;
-                int zoomEndFrame = 60; // 30 frames = 1 second at 30 fps
-
-                if (frameIndex >= zoomStartFrame && frameIndex <= zoomEndFrame) {
-                    double targetMultiplier = 0.5; // the zoom level we want to end up at
-                    double displacement = springAnimation(targetMultiplier, currentMultiplier, velocity, tension, friction);
-                    
-                    // Update 'current' variables for the next frame
-                    velocity += displacement;
-                    currentMultiplier += velocity;
-
-                    // make sure the multiplier is within the desired range (?)
-                    currentMultiplier = currentMultiplier > 1.0 ? 1.0 : currentMultiplier < targetMultiplier ? targetMultiplier : currentMultiplier;
-
-                    g_print("currentMultiplier %f\n", currentMultiplier);
-
-                    targetWidth = bg_frame->width * currentMultiplier;
-                    targetHeight = bg_frame->height * currentMultiplier;
-                } else if (frameIndex > zoomEndFrame) {
-                    // The zoom effect has ended.
-                    // Keep the target dimensions at the desired zoom level.
-                    targetWidth = bg_frame->width;
-                    targetHeight = bg_frame->height;
+                // Search for the current zoom level
+                
+                double targetMultiplier = 1.0; // Default value when no zoom effect is active
+                for (auto zoomInfoIt = mockZoomInfo.begin(); zoomInfoIt != mockZoomInfo.end(); ++zoomInfoIt) {
+                    auto& zoomInfo = *zoomInfoIt;
+                    if (zoomInfoIt != mockZoomInfo.end()) {
+                        auto &zoomInfo = *zoomInfoIt;
+                        if (timeElapsed >= zoomInfo.startTimestamp && timeElapsed < zoomInfo.endTimestamp) {
+                        // if (timeElapsed >= zoomInfo.startTimestamp && timeElapsed < zoomInfo.startTimestamp + 1000) {
+                            if (zoomingIn == false) {
+                                velocity = 0;
+                                velocityMouseX = 0;
+                                velocityMouseY = 0;
+                                velocityWidth = 0;
+                                velocityHeight = 0;
+                                // currentMouseX = mouseX; // setting to mouseX causes a jump?
+                                // currentMouseY = mouseY;
+                                zoomingIn = true;
+                                g_print("Zooming In\n");
+                            }
+                            // Rest of the zooming in code...
+                            targetMultiplier = zoomInfo.zoom;
+                        } else if (timeElapsed >= zoomInfo.endTimestamp && timeElapsed < zoomInfo.endTimestamp + 1000) {
+                            if (zoomingIn == true) {
+                                velocity = 0;
+                                velocityMouseX = 0;
+                                velocityMouseY = 0;
+                                velocityWidth = 0;
+                                velocityHeight = 0;
+                                // currentMouseX = mouseX;
+                                // currentMouseY = mouseY;
+                                zoomingIn = false;
+                                g_print("Zooming Out\n");
+                            }
+                            // Rest of the zooming out code...
+                            targetMultiplier = 1.0;
+                        } else {
+                            zoomingIn = false;
+                            g_print("Reset Zoom\n");
+                            break;
+                        }
+                    }
+                    //  else {
+                    //     zoomingIn = false;
+                    // }
                 }
+
+                // Set the tension and friction to control the behavior of the spring.
+                double tension = 0.05;
+                double friction = 0.05;
+
+                // Update 'current' variables for the next frame
+                double displacement = springAnimation(targetMultiplier, currentMultiplier, velocity, tension, friction);
+                velocity += displacement;
+                currentMultiplier += velocity;
+
+                // make sure the multiplier is within the desired range (?)
+                currentMultiplier = currentMultiplier > 1.0 ? 1.0 : currentMultiplier < targetMultiplier ? targetMultiplier : currentMultiplier;
+                // and above 0
+                // currentMultiplier = currentMultiplier < 0.0 ? 0.0 : currentMultiplier;
+
+                g_print("currentMultiplier %f\n", currentMultiplier);
+
+                targetWidth = bg_frame->width * currentMultiplier;
+                targetHeight = bg_frame->height * currentMultiplier;
 
                 static double currentWidth = bg_frame->width;
                 static double currentHeight = bg_frame->height;
-                static double velocityWidth = 0;
-                static double velocityHeight = 0;
 
                 // Intentionally different than values for above springAnimation
-                double tension = 0.8;
-                double friction = 0.9;
+                tension = 0.8;
+                friction = 0.9;
 
                 double displacementWidth = springAnimation(targetWidth, currentWidth, velocityWidth, tension, friction);
                 double displacementHeight = springAnimation(targetHeight, currentHeight, velocityHeight, tension, friction);
@@ -379,16 +467,73 @@ static int transform_video (GtkWidget *widget, gpointer data)
                 // int zoomTop = (bg_frame->height - zoomHeight) / 2;
                 // int zoomLeft = (bg_frame->width - zoomWidth) / 2;
 
-                int mouseX = bg_frame->width / 2, mouseY = 500;
-
                 // Calculate the top left position of the zoom frame,
                 // making sure it's centered on the mouse position and not going out of bounds.
-                int zoomLeft = std::max(0, std::min(static_cast<int>(std::round(mouseX - currentWidth / 2)), static_cast<int>(bg_frame->width - currentWidth)));
-                int zoomTop = std::max(0, std::min(static_cast<int>(std::round(mouseY - currentHeight / 2)), static_cast<int>(bg_frame->height - currentHeight)));
+                // int zoomLeft = std::max(0, std::min(static_cast<int>(std::round(mouseX - currentWidth / 2)), static_cast<int>(bg_frame->width - currentWidth)));
+                // int zoomTop = std::max(0, std::min(static_cast<int>(std::round(mouseY - currentHeight / 2)), static_cast<int>(bg_frame->height - currentHeight)));
 
-                // assure even numbers
-                zoomTop = (zoomTop / 2) * 2;
-                zoomLeft = (zoomLeft / 2) * 2;
+                // animate the mouse positions as well
+                for (size_t i = 0; i < mouseEventsJson.size(); ++i) {
+                    if (mouseEventsJson[i]["timeStamp"] >= timeElapsed) {
+                        // TODO: calculate based on windowDataJson (and surrounding frame?)
+                        // smoother mouse movements based on distance of 100px or more
+                        int deltaX = abs(mouseX - mouseEventsJson[i]["x"].get<double>());
+                        int deltaY = abs(mouseY - mouseEventsJson[i]["y"].get<double>());
+
+                        // printf("Mouse Delta: %f, %d, %d\n", mouseEventsJson[i]["x"].get<double>(), deltaX, deltaY);
+
+                        if (deltaX < 100 && deltaY < 100) {
+                            break;
+                        }
+
+                        mouseX = mouseEventsJson[i]["x"].get<double>();
+                        mouseY = mouseEventsJson[i]["y"].get<double>();
+                        break;
+                    }
+                }
+
+                printf("Mouse Positions: %f, %f and %f, %f\n", mouseX, mouseY, currentMouseX, currentMouseY);
+
+                if (mouseX != currentMouseX || mouseY != currentMouseY) {
+                    tension = 0.1;
+                    friction = 0.2;
+
+                    // printf("Spring Args %f %f %f %f %f\n", mouseX, currentMouseX, velocityMouseX, tension, friction);
+
+                    double displacementMouseX = springAnimation(mouseX, currentMouseX, velocityMouseX, tension, friction);
+                    double displacementMouseY = springAnimation(mouseY, currentMouseY, velocityMouseY, tension, friction);
+
+                    printf("Displacement Position: %f, %f\n", displacementMouseX, displacementMouseY);
+
+                    // displacementMouseX = displacementMouseX > 100 ? 100 : displacementMouseX;
+                    // displacementMouseY = displacementMouseY > 100 ? 100 : displacementMouseY;
+
+                    // Update 'current' and 'velocity' variables for the next frame
+                    velocityMouseX += displacementMouseX;
+                    currentMouseX += velocityMouseX;
+                    velocityMouseY += displacementMouseY;
+                    currentMouseY += velocityMouseY;
+
+                    // clamp max
+                    double frameWidth = (double) frame->width;
+                    double frameHeight = (double) frame->height;
+
+                    currentMouseX = currentMouseX > frameWidth ? frameWidth : currentMouseX;
+                    currentMouseY = currentMouseY > frameHeight ? frameHeight : currentMouseY;
+                    velocityMouseX = velocityMouseX > frameWidth ? frameWidth : velocityMouseX;
+                    velocityMouseY = velocityMouseY > frameHeight ? frameHeight : velocityMouseY;
+
+                    printf("Spring Position: %f, %f\n", currentMouseX, currentMouseY);
+                    printf("calc %f, %f\n", currentMouseY - currentHeight / 2, static_cast<double>(bg_frame->height) - currentHeight);
+
+                    // Center the zoom on the current mouse position
+                    zoomTop = std::max(0, static_cast<int>(std::min(currentMouseY - currentHeight / 2, static_cast<double>(bg_frame->height) - currentHeight)));
+                    zoomLeft = std::max(0, static_cast<int>(std::min(currentMouseX - currentWidth / 2, static_cast<double>(bg_frame->width) - currentWidth)));
+
+                    // assure even numbers
+                    zoomTop = (zoomTop / 2) * 2;
+                    zoomLeft = (zoomLeft / 2) * 2;
+                }
 
                 // Create a new AVFrame for the zoomed portion.
                 AVFrame* zoom_frame = av_frame_alloc();
@@ -398,9 +543,9 @@ static int transform_video (GtkWidget *widget, gpointer data)
                 zoom_frame->pts = av_rescale_q(frameIndex, encoderCodecCtx->time_base, encoderStream->time_base);
                 av_frame_get_buffer(zoom_frame, 0);
 
-                // g_print("Zoom Frame: %d x %d\n", zoomWidth, zoomHeight);
-                // g_print("Diagnostic Info: %d x %d\n", zoom_frame->width, zoom_frame->height);
-                // g_print("More Info: %d, %d\n", zoomTop, zoomLeft);
+                g_print("Zoom Frame: %d x %d\n", zoomWidth, zoomHeight);
+                g_print("Diagnostic Info: %d x %d\n", zoom_frame->width, zoom_frame->height);
+                g_print("More Info: %d, %d\n", zoomTop, zoomLeft);
 
                 // Scale up the zoomed portion to the output frame size using libswscale.
                 struct SwsContext* swsCtxZoom = sws_getContext(
@@ -419,20 +564,29 @@ static int transform_video (GtkWidget *widget, gpointer data)
                     zoomData[2] = NULL;
                 }
 
-                sws_scale(swsCtxZoom, (const uint8_t* const*)zoomData, bg_frame->linesize, 0, zoomHeight, zoom_frame->data, zoom_frame->linesize);
+                g_print("Scale Frame: %d x %d\n", zoom_frame->width, zoom_frame->height);
 
                 // check zoomData
-                // for (int i = 0; i < 3; i++) {
-                //     if (zoomData[i] == nullptr) {
-                //         g_print("zoomData[%d] is null\n", i);
-                //     }
-                // }
+                for (int i = 0; i < 3; i++) {
+                    if (zoomData[i] == nullptr) {
+                        g_print("zoomData[%d] is null\n", i);
+                    }
+                }
 
+                // check other sws_scale args
+                g_print("sws_scale args %d %d %d %d \n", bg_frame->linesize, zoomHeight, zoom_frame->data, zoom_frame->linesize);
+                
+                // zoom scale
+                sws_scale(swsCtxZoom, (const uint8_t* const*)zoomData, bg_frame->linesize, 0, zoomHeight, zoom_frame->data, zoom_frame->linesize);
+
+                // some cleanup
                 sws_freeContext(swsCtxZoom);
 
                 av_frame_free(&bg_frame); // We don't need the original background frame anymore.
                 av_frame_free(&frame); // We don't need the original frame anymore.
                 av_frame_free(&scaled_frame); // We don't need the scaled frame anymore.
+
+                g_print("Send Frame\n");
 
                 if (avcodec_send_frame(encoderCodecCtx, zoom_frame) < 0) {
                     fprintf(stderr, "Error sending frame for encoding\n");
